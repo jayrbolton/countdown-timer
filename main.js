@@ -140,7 +140,7 @@ function Form (label) {
     function start () {
         if (timeIsValid(bus.vals.time)) {
             bus.pub('status', 'running');
-            bus.pub('lastTime', (new Date()).getTime());
+            bus.pub('lastTime', 0);
         } else {
             console.log("Time invalid");
         }
@@ -213,12 +213,12 @@ function Form (label) {
         formattedTimeEl.textContent = formatTime(bus.vals.totalSeconds - elapsedSeconds);
     });
 
-    function timer () {
+    function timer (elapsed) {
+        const delta = elapsed - bus.vals.lastTime;
         if (bus.vals.status === 'running') {
-            const time = (new Date()).getTime();
-            if (time - bus.vals.lastTime >= 1000) {
+            if (delta >= 1000) {
                 bus.pub('elapsedSeconds', bus.vals.elapsedSeconds + 1);
-                bus.pub('lastTime', bus.vals.lastTime + 1000);
+                bus.pub('lastTime', elapsed);
                 if (bus.vals.totalSeconds - bus.vals.elapsedSeconds <= 0) {
                     // Timer finished!
                     bus.pub('status', 'finished');
