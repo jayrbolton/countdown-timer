@@ -1,7 +1,16 @@
 import { El, Bus } from "./uzu.js";
 
 function App () {
-    const form = Form('Countdown from');
+    const bus = Bus({
+        status: 'editing',
+        totalSeconds: 0,
+        pauseStartTime: 0,
+        pauseElapsedMs: 0,
+        elapsedSeconds: 0,
+        startTime: 0,
+        time: {hours: 0, minutes: 0, seconds: 0},
+    });
+    const form = Form(bus);
     const wrapper = El('div', {
         style: {
             padding: "1.5rem 1rem",
@@ -25,16 +34,7 @@ function Title (text) {
     }, [text]);
 }
 
-function Form (label) {
-    const defaultTime = () => ({hours: 0, minutes: 0, seconds: 0});
-    const bus = Bus({
-        status: 'editing',
-        totalSeconds: 0,
-        elapsedSeconds: 0,
-        lastTime: 0,
-        time: defaultTime(),
-    });
-
+function Form (bus) {
     // Text displaying countdown timer formatted as HH:MM:SS
     const formattedTimeEl = El('p', {
         style: {
@@ -99,7 +99,7 @@ function Form (label) {
                 marginBottom: "0.5rem",
                 display: "block",
             },
-        }, [label]),
+        }, ['Countdown from:']),
         TimeInput('hours', 'Hours',),
         TimeInput('minutes', 'Minutes',),
         TimeInput('seconds', 'Seconds'),
@@ -139,8 +139,12 @@ function Form (label) {
     // Start timer
     function start () {
         if (timeIsValid(bus.vals.time)) {
+            if (bus.vals.status !== 'paused') {
+                // Reset the start time only if we are not paused
+                bus.pub('startTime', (new Date()).getTime());
+            }
             bus.pub('status', 'running');
-            bus.pub('lastTime', 0);
+            worker.postMessage('start');
         } else {
             console.log("Time invalid");
         }
@@ -151,11 +155,13 @@ function Form (label) {
         bus.pub('status', 'editing');
         bus.pub('totalSeconds', timeToTotal(bus.vals.time));
         bus.pub('elapsedSeconds', 0);
+        worker.postMessage('stop');
     }
 
     // Pause timer
     function pause () {
         bus.pub('status', 'paused');
+        bus.pub('pauseStartTime', (new Date()).getTime());
     }
 
     disableBtnStyle(startBtn);
@@ -213,22 +219,24 @@ function Form (label) {
         formattedTimeEl.textContent = formatTime(bus.vals.totalSeconds - elapsedSeconds);
     });
 
-    function timer (elapsed) {
-        const delta = elapsed - bus.vals.lastTime;
+    const worker = new Worker("timer.js");
+    worker.addEventListener("message", (ev) => {
         if (bus.vals.status === 'running') {
-            if (delta >= 1000) {
-                bus.pub('elapsedSeconds', bus.vals.elapsedSeconds + 1);
-                bus.pub('lastTime', elapsed);
-                if (bus.vals.totalSeconds - bus.vals.elapsedSeconds <= 0) {
-                    // Timer finished!
-                    bus.pub('status', 'finished');
-                    synthBeep();
-                }
+            const delta = ev.data - bus.vals.startTime - bus.vals.pauseElapsedMs;
+            const seconds = Math.floor(delta / 1000);
+            if (seconds > bus.vals.elapsedSeconds) {
+                bus.pub('elapsedSeconds', seconds);
             }
+            if (seconds >= bus.vals.totalSeconds) {
+                bus.pub('status', 'finished');
+                worker.postMessage('stop');
+                synthBeep();
+            }
+        } else if (bus.vals.status === 'paused') {
+            const delta = ev.data - bus.vals.pauseStartTime;
+            bus.pub('pauseElapsedMs', delta);
         }
-        window.requestAnimationFrame(timer);
-    }
-    timer();
+    });
 
     return { el, bus };
 }
